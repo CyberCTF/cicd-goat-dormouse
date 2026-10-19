@@ -1,0 +1,12 @@
+# Jenkins plugins for the dormouse lab. jenkins-plugin-cli resolves compatible versions for the
+# pinned controller. Just enough for: config-as-code, a Job DSL seed job, git-backed Pipeline jobs
+# that poll Gitea, and the credential bindings the two inline pipelines use (the artifact-server key
+# and the flag token).
+configuration-as-code
+job-dsl
+git
+workflow-aggregator
+credentials
+credentials-binding
+plain-credentials
+ws-cleanup

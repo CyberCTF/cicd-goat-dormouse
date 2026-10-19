@@ -1,0 +1,57 @@
+# Jenkins Configuration-as-Code for the lab's controller.
+#
+# Three credentials matter:
+#   - `flag`         GLOBAL string — Wonderland's deploy token (the per-player flag). Its value is
+#                    NOT in this file and NOT in the image; it resolves at boot from a file secret
+#                    (`${flag}` -> $SECRETS/flag), which the entrypoint stages from the per-player
+#                    input Isoloom mounts at run time. The dormouse pipeline binds it.
+#   - `artifact-key` GLOBAL string — the artifact server's SSH private key (base64), a FIXED lab
+#                    value (NOT the flag). The reportcov pipeline binds it; the command injection in
+#                    that pipeline is what lets an attacker read it.
+#   - `gitea-jenkins` GLOBAL username/password — read access for polling the Gitea repositories.
+jenkins:
+  systemMessage: "CI controller — builds Cov/reportcov and Wonderland/dormouse."
+  numExecutors: 2
+  mode: NORMAL
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+security:
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              id: "flag"
+              scope: GLOBAL
+              secret: "${flag}"
+              description: "Wonderland deploy token — keep secret"
+          - string:
+              id: "artifact-key"
+              scope: GLOBAL
+              secret: "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNDOVdndlErV1BlWGNacmhDSzgrVG00cFhOYWNYVnFZekd5TklGcGl2dm9Cd0FBQUtqaUdqNXY0aG8rCmJ3QUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDQzlXZ3ZRK1dQZVhjWnJoQ0s4K1RtNHBYTmFjWFZxWXpHeU5JRnBpdnZvQncKQUFBRUN2SjZ2UmZmUFJyU1g4MTE4bkhMbUdpVk1ESUdXandaQkRzdk9hTjM2SzU3MWFDOUQ1WTk1ZHhtdUVJcno1T2JpbApjMXB4ZFdwak1iSTBnV21LKytnSEFBQUFKWEpsY0c5eWRHTnZkaTFoY25ScFptRmpkQzFrWlhCc2IzbEFZMjkyTG1WNFlXCjF3YkdVPQotLS0tLUVORCBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K"
+              description: "reportcov artifact-server deploy key (base64 OpenSSH private key)"
+          - usernamePassword:
+              id: "gitea-jenkins"
+              scope: GLOBAL
+              username: "jenkins"
+              password: "jenkins"
+              description: "Gitea read access for polling repositories"
+
+unclassified:
+  location:
+    url: "http://jenkins:8080/"
+
+jobs:
+  - file: /usr/share/jenkins/casc/jobdsl/reportcov.groovy
+  - file: /usr/share/jenkins/casc/jobdsl/dormouse.groovy

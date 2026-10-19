@@ -1,0 +1,15 @@
+# The artifact server's sshd: root may log in by key only (the fixed lab deploy key). This is the
+# deploy channel the release pipeline uses — and the one an attacker who steals the key abuses.
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthorizedKeysFile .ssh/authorized_keys
+
+UsePAM no
+PrintMotd no
+Subsystem sftp /usr/lib/ssh/sftp-server

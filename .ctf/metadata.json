@@ -1,0 +1,13 @@
+{
+  "project_name": "cyberlabs-cicd-goat-dormouse",
+  "slug": "cicd-goat-dormouse",
+  "title": "Dormouse: improper artifact integrity validation",
+  "description": "A Jenkins controller runs two pipelines you cannot view: one builds the 3rd-party Cov/reportcov repository (hosted on Gitea) and deploys an artifact to a shared artifact server; the other, Wonderland's own pipeline, downloads that artifact and runs it without verifying its integrity, with a Global-scope deploy-token credential bound. The reportcov pipeline interpolates an attacker-controlled commit field into a shell command (command injection) and holds the artifact server's SSH key. An attacker with write access to reportcov steals the key, scps a poisoned artifact onto the shared server, and triggers the downstream pipeline, which runs the attacker's code and exfiltrates the token to the build console in a form the masker will not catch (OWASP CICD-SEC-8 Ungoverned Usage of 3rd Party Services and CICD-SEC-9 Improper Artifact Integrity Validation). Reproduces the \"Dormouse\" challenge from CI/CD Goat.",
+  "category": "cicd",
+  "difficulty": 3,
+  "evidence_kind": "SECRET",
+  "capabilities": [
+    "artifact-integrity-hijack"
+  ],
+  "question": "Poison the shared reportcov.sh artifact consumed by the Wonderland/dormouse pipeline and exfiltrate the Global-scope deploy-token credential from the build console."
+}

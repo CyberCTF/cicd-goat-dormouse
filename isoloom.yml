@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=https://www.isoloom.com/schema/v1.json
+# Dormouse (CI/CD Goat, CICD-SEC-8 Ungoverned 3rd-Party Services + CICD-SEC-9 Improper Artifact
+# Integrity Validation): a live, three-machine CI/CD lab. A Jenkins controller runs TWO inline
+# pipelines you cannot view: `cov-reportcov` builds the 3rd-party Cov/reportcov repository and
+# deploys an artifact (reportcov.sh) to a SHARED artifact server (`prod`), and `wonderland-dormouse`
+# consumes that artifact — it fetches http://prod/reportcov.sh and RUNS it without verifying its
+# integrity. The reportcov pipeline interpolates an attacker-controlled commit field into a shell
+# command (command injection) and holds the artifact server's SSH key. An attacker steals the key,
+# scps a POISONED reportcov.sh onto the shared server, and the dormouse pipeline then runs the
+# attacker's code with the flag credential bound — exfiltrating the flag to the build console in a
+# form the masker will not catch. This is a supply-chain artifact-integrity hijack. See
+# https://www.isoloom.com.
+version: 1
+name: cicd-goat-dormouse
+
+networks:
+  lab: { cidr: 10.43.0.0/24 }
+
+# The per-player flag, issued by CyberCTF and handed to the lab by the launcher as a FILE (never an
+# environment value, so it never shows in `docker inspect`, an image layer or a generated file). The
+# Jenkins entrypoint stages it into the directory JCasC reads file secrets from, so the `flag`
+# credential resolves at boot. Optional: an offline start (local, CI) leaves it empty and the lab
+# stages its inert development placeholder instead, so the lab still comes up and is solvable.
+#   CTF_FLAG_DORMOUSE  objective `dormouse`  (SECRET: Wonderland's dormouse deploy token)
+inputs:
+  CTF_FLAG_DORMOUSE:
+    description: the dormouse flag, injected into the Jenkins credential store as a Global-scope credential
+
+machines:
+  # The git host: Gitea, holding the 3rd-party `Cov/reportcov` repository (public) and the private
+  # `Wonderland/dormouse` consumer. The setup job provisions the orgs, the attacker user (alice,
+  # write on reportcov) and the Jenkins poller (jenkins, read), then pushes both sample projects. No
+  # `publish` number: `publish: true` asks the runner for a free host port it picks at `up` time
+  # (dynamic), so two labs never collide.
+  gitea:
+    app:
+      build: build/gitea
+    networks: { lab: 12 }
+    resources: { cpus: 1, memory_mb: 1024 }
+    volumes: { data: /data }
+    ports:
+      web: { port: 3000, protocol: http, publish: true }
+    setup: [build/gitea/seed.sh]
+
+  # The shared artifact server (`prod`) — the ungoverned 3rd-party service (CICD-SEC-8). It serves
+  # reportcov.sh over HTTP (busybox httpd on :80) and accepts deployments over SSH (sshd on :22,
+  # root, key-only, the FIXED lab public key). It has NO integrity controls: whatever is uploaded is
+  # what downstream pipelines run. The ssh port is published (dynamic) so a player can scp the
+  # poisoned artifact from their host once they recover the key; the flag never lives here.
+  prod:
+    app:
+      build: build/prod
+    networks: { lab: 14 }
+    resources: { cpus: 1, memory_mb: 512 }
+    ports:
+      http: { port: 80, protocol: http, publish: true }
+      ssh: { port: 22, protocol: tcp, publish: true }
+
+  # The Jenkins controller: two FIXED pipelines (defined in Jenkins, NOT read from a Jenkinsfile, so
+  # you cannot view or edit them), each polled over git every minute. `cov-reportcov` binds the
+  # artifact server's SSH key and interpolates an attacker-controlled commit field into a shell
+  # command (the injection). `wonderland-dormouse` binds the Global-scope `flag` credential and runs
+  # whatever reportcov.sh the shared server currently holds. The per-player flag arrives as a
+  # root-only file; only the entrypoint reads it.
+  jenkins:
+    app:
+      build: build/jenkins
+    networks: { lab: 10 }
+    resources: { cpus: 2, memory_mb: 2048 }
+    ports:
+      web: { port: 8080, protocol: http, publish: true }
+    files:
+      - { path: /run/lab/secrets/flag, input: CTF_FLAG_DORMOUSE }
+
+# From the player's side, on every target: reachability checks that all three services answer, and
+# the intended path as a solver that runs inside the Jenkins controller — it performs the artifact
+# hijack end to end (steal the artifact-server key via command injection in the reportcov pipeline,
+# scp a poisoned reportcov.sh onto the shared server, run the dormouse pipeline that consumes it) and
+# proves the flag was exfiltrated, without ever printing it. Jenkins is slow to boot and the attack
+# drives two pipelines, so the waits are generous.
+checks:
+  - name: the Gitea git host answers
+    http: http://gitea:3000/
+    wait: 3m
+  - name: the shared artifact server answers
+    http: http://prod/reportcov.sh
+    wait: 2m
+  - name: the Jenkins controller answers
+    http: http://jenkins:8080/login
+    wait: 5m
+  - name: the shared artifact is poisoned and the flag credential is exfiltrated downstream
+    from: jenkins
+    exec: bash /usr/local/bin/dormouse-solve
+    wait: 8m
+
+# Shown when the lab is up.
+message: |
+  `Cov/reportcov` is a **3rd-party** coverage tool many teams run in CI. It has its own **Jenkins**
+  pipeline (which you cannot view) that deploys an artifact, `reportcov.sh`, to a **shared artifact
+  server**. Wonderland's own pipeline, **wonderland-dormouse**, downloads that same `reportcov.sh`
+  and runs it in its test stage — **without checking what it is**. That pipeline can read Wonderland's
+  deploy token (a Jenkins credential at **Global** scope).
+
+  - Gitea:   {{ machines.gitea.ports.web.url }}   (sign in as `alice` / `alice`)
+  - Jenkins: {{ machines.jenkins.ports.web.url }} (sign in as `admin` / `admin` to read build consoles)
+  - Artifact server (ssh): `root@127.0.0.1` port `{{ machines.prod.ports.ssh.published }}` (deploy over scp)
+
+  You have **write** access to `Cov/reportcov`. The reportcov pipeline notifies maintainers about new
+  changes by running `echo New change ... ${subject} ...` in a shell — it treats your commit subject
+  as a shell variable. That pipeline also holds the artifact server's SSH key.
+
+  ```
+  git clone {{ machines.gitea.ports.web.url }}Cov/reportcov.git
+  ```
+
+  Inject a command in your commit subject to steal the artifact server's key (the pipeline binds it
+  as a credential, so Jenkins masks it — recover it with a transform like `echo $KEY | rev | base64`,
+  then `base64 -d | rev`). Use the key to `scp` a **poisoned** `reportcov.sh` onto the artifact
+  server, then build **wonderland-dormouse**. When it runs your script with the token bound, it will
+  not print the token in plaintext — transform it first (reverse, then base64: recover with
+  `base64 -d | rev`); read the build's console output in Jenkins.
